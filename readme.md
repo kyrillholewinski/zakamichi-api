@@ -1,0 +1,1 @@
+pm2 start index.js --name "zakamichi-api" -i max -o ./logs/out.log -e ./logs/error.log --log-date-format "YYYY-MM-DD HH:mm:ss Z"
