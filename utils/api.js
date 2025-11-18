@@ -57,3 +57,19 @@ export async function httpRequest(axiosConfig) {
     }
   }
 }
+
+export async function loadUrlStream(url, retries = 3) {
+    for (let i = 0; i < retries; i++) {
+        try {
+            const { status, data } = await axios.get(url, { responseType: 'stream' });
+            if (status === 200) {
+                return data;
+            } else {
+                console.error(`Failed with status ${response.status}. Retry: ${i}`);
+            }
+        } catch (ex) {
+            console.error(`Connect to ${url} Fail: ${ex.message} Retry: ${i}`);
+        }
+    }
+    return null;
+}

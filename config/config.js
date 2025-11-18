@@ -1,13 +1,16 @@
 import 'dotenv/config';
+import path from 'path'
 
 // Server Configuration
 export const PORT = parseInt(process.env.PORT || '22350', 10);
 
 // Application Configuration
-export const EXPORT_FILE_PATH = process.env.EXPORT_FILE_PATH || 'MessageExport';
-export const RECORD_FILE_PATH = process.env.RECORD_FILE_PATH || 'Record'
-export const CONFIG_FILE_NAME = process.env.CONFIG_FILE_NAME || 'config/config.json';
-export const DESIRE_FILE_NAME =  process.env.DESIRE_FILE_NAME || 'config/Desired_Member_List.json'
+export const MESSAGE_BOT_PATH = process.env.MESSAGE_BOT_PATH || 'zakamichi-message-bot'
+export const BLOG_BOT_PATH = process.env.BLOG_BOT_PATH || 'zakamichi-blog-bot'
+export const EXPORT_FILE_PATH = path.join(MESSAGE_BOT_PATH, 'MessageExport');
+export const RECORD_FILE_PATH = path.join(MESSAGE_BOT_PATH, 'Record');
+export const CONFIG_FILE_NAME = path.join(MESSAGE_BOT_PATH, 'config/config.json');
+export const DESIRE_FILE_NAME = path.join(MESSAGE_BOT_PATH, 'config/Desired_Member_List.json');
 // API Constants
 export const API_TYPE_TO_CODE = {
     text: '0',
