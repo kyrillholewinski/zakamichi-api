@@ -267,11 +267,11 @@ export const getBlogsZip = async (req, res, next) => {
 
         // 1. Determine Cutoff Date
         let cutoffDate = null;
-        if (!member && date) {
+        if (date) {
             // If no specific member is selected, we might use a date filter
             const parsed = new Date(parseDateTime(date, 'yyyyMMdd'));
-            cutoffDate = !isNaN(parsed) ? parsed : DEFAULT_LAST_UPDATE;
-        } else if (!member) {
+            cutoffDate = parsed || DEFAULT_LAST_UPDATE;
+        } else {
             cutoffDate = DEFAULT_LAST_UPDATE;
         }
 
@@ -359,12 +359,12 @@ async function prepareDownloadTasks(members, cutoffDate, targetBlogId) {
         const memberImgFolder = path.join(baseFolder, member.Name);
         const tzOffsetMs = 8 * 60 * 60 * 1000; // UTC+8
 
-        for (const blog of blogList) {
+        for (const [index, blog] of blogList.entries()) {
             const { DateTime, ImageList = [], ID } = blog;
             if (!ImageList.length) continue;
 
             const blogTimestamp = new Date(DateTime).getTime();
-            const fileDate = new Date(blogTimestamp + tzOffsetMs);
+            const fileDate = new Date(blogTimestamp + tzOffsetMs + index * 1000);
 
             // Filter only valid extensions
             const validImages = ImageList.filter(rel =>
