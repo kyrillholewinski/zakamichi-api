@@ -1,7 +1,7 @@
 import archiver from 'archiver';
 import path from 'path';
 import fs from 'fs'; // Keep 'fs' for createReadStream
-import { getJsonList } from '../../utils/file.js';
+import { getJson } from '../../utils/file.js';
 import { parseDateTime } from '../../utils/date.js';
 import { MESSAGE_BOT_PATH, RECORD_FILE_PATH, DEFAULT_TIMEZONE_OFFSET_MS, CONFIG_FILE_NAME, DESIRE_FILE_NAME } from '../../config/config.js';
 
@@ -11,7 +11,7 @@ export const getMessageDashboard = async (req, res, next) => {
     const nPage = parseInt(page, 10);
 
     try {
-        const configGroups = await getJsonList(CONFIG_FILE_NAME);
+        const configGroups = await getJson(CONFIG_FILE_NAME);
         if (!configGroups.length) {
             return res.status(404).json({ error: 'No groups found' });
         }
@@ -32,8 +32,8 @@ export const getMessageDashboard = async (req, res, next) => {
 
                     // --- OPTIMIZATION: Fetch member's files in parallel ---
                     const [messages, memberInfos] = await Promise.all([
-                        getJsonList(msgPath),      // Read messages
-                        getJsonList(memberInfoPath) // Read member info
+                        getJson(msgPath),      // Read messages
+                        getJson(memberInfoPath) // Read member info
                     ]);
 
                     const member_info = memberInfos.length > 0 ? memberInfos[0] : {};
@@ -103,7 +103,7 @@ async function processMemberMessages(group, m, archive, cutoffDate, memberQuery)
         const memberDir = path.join(RECORD_FILE_PATH, group.name, m.name);
         const messagesJsonPath = path.join(memberDir, `${m.id}_timeline_messages.json`);
 
-        const existingMessages = await getJsonList(messagesJsonPath);
+        const existingMessages = await getJson(messagesJsonPath);
         if (existingMessages.length === 0) {
             return; // This member has no messages, skip
         }
@@ -166,8 +166,8 @@ export const getMessagesZip = async (req, res, next) => {
         const cutoffDate = lastUpdate;
 
         // Load configs
-        const configGroups = await getJsonList(CONFIG_FILE_NAME);
-        const desiredMembers = await getJsonList(DESIRE_FILE_NAME);
+        const configGroups = await getJson(CONFIG_FILE_NAME);
+        const desiredMembers = await getJson(DESIRE_FILE_NAME);
 
         // OPTIMIZATION: Use a Set for fast O(1) lookups
         const desiredSet = new Set(desiredMembers);

@@ -4,7 +4,7 @@ import { fileURLToPath } from 'url';
 import apiRoutes from './routes.js';
 import cors from 'cors';
 import { EXPORT_FILE_PATH } from '../config/config.js';
-import { checkAuth } from './middleware/checkAuth.js';
+import { checkAuth } from './controllers/auth.js';
 import cookieParser from 'cookie-parser';
 
 const __filename = fileURLToPath(import.meta.url);

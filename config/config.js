@@ -11,6 +11,7 @@ export const EXPORT_FILE_PATH = path.join(MESSAGE_BOT_PATH, 'MessageExport');
 export const RECORD_FILE_PATH = path.join(MESSAGE_BOT_PATH, 'Record');
 export const CONFIG_FILE_NAME = path.join(MESSAGE_BOT_PATH, 'config/config.json');
 export const DESIRE_FILE_NAME = path.join(MESSAGE_BOT_PATH, 'config/Desired_Member_List.json');
+export const JWT_SECRET = process.env.JWT_SECRET || 'delirien-walzer-op-212'
 // API Constants
 export const API_TYPE_TO_CODE = {
     text: '0',

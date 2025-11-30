@@ -4,7 +4,7 @@ import os from 'os';
 import archiver from 'archiver';
 import pLimit from 'p-limit';
 
-import { getJsonList, ensureDirectoryExists } from "../../utils/file.js";
+import { getJson, ensureDirectoryExists } from "../../utils/file.js";
 import { parseDateTime } from '../../utils/date.js';
 import { loadUrlStream } from '../../utils/api.js';
 import { BLOG_BOT_PATH, DESIRE_FILE_NAME } from "../../config/config.js";
@@ -78,7 +78,7 @@ async function getAllBlogMembers() {
     // Map groups to their status file path promise
     const promises = groups.map(group => {
         const filePath = path.join(getGroupRecordPath(group), PATHS.STATUS_FILE);
-        return getJsonList(filePath);
+        return getJson(filePath);
     });
 
     const results = await Promise.all(promises);
@@ -156,21 +156,20 @@ export const getBlogDashboard = async (req, res, next) => {
                     (new Date(prev.DateTime) > new Date(current.DateTime)) ? prev : current
                 );
                 lastUpdateTime = latestBlog.DateTime;
-                console.log(latestBlog)
                 thumbnail = latestBlog.ImageList.length > 0 ? (homePage + latestBlog.ImageList[0]) : null
             }
 
             const m = {
-                member_id: `${groupName}-${member.Name}`,
                 name: member.Name,
                 group: groupName,
                 thumbnail: thumbnail,
                 blog_count: member.BlogList.length,
                 last_update_time: lastUpdateTime
             }
-            console.log(m)
 
-            groupsMap.get(groupName).push(m);
+            if (member.Name && member.Name != "運営スタッフ") {
+                groupsMap.get(groupName).push(m);
+            }
         }
 
         const dashboardData = Array.from(groupsMap, ([group, members]) => ({ group, members }));
@@ -277,7 +276,7 @@ export const getBlogsZip = async (req, res, next) => {
 
         // 2. Filter Members
         const allMembers = await getAllBlogMembers();
-        const desiredList = await getJsonList(DESIRE_FILE_NAME);
+        const desiredList = await getJson(DESIRE_FILE_NAME);
 
         let membersToProcess = [];
         if (member && group) {

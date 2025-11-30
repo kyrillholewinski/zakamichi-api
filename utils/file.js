@@ -11,16 +11,16 @@ export const ensureDirectoryExists = async (dirPath) => {
     }
 };
 
-export const getJsonList = async (filePath) => {
+export const getJson = async (filePath, defaultValue = []) => {
     try {
         await fs.promises.access(filePath);
         const data = await fs.promises.readFile(filePath, 'utf-8');
-        return JSON.parse(data) || [];
+        return JSON.parse(data) || defaultValue;
     } catch (err) {
         if (err.code !== 'ENOENT') {
             console.error(`Error reading JSON from ${filePath}:`, err.message);
         }
-        return []; // Return empty list if file not found
+        return defaultValue; // Return empty list if file not found
     }
 };
 
