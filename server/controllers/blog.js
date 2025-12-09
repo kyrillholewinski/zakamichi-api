@@ -301,24 +301,17 @@ export const getBlogsZip = async (req, res, next) => {
         // Execute downloads with concurrency limit
         const limit = pLimit(PROCESSOR_THREADS);
         const downloadPromises = downloadTasks.map(task =>
-            limit(() => executeDownloadTask(task))
+            limit(() => executeDownloadTask(task, archive))
         );
 
         // Wait for all downloads to complete (resolves to objects or null)
-        const results = await Promise.all(downloadPromises);
-
-        // Append successful files to archive
-        const validResults = results.filter(r => r !== null);
-        validResults.forEach(({ data, archivePath, date }) => {
-            archive.append(data, { name: archivePath, date: date });
-        });
+        await Promise.all(downloadPromises);
 
         // 5. Finalize
         await archive.finalize();
 
         console.log('[EXPORT] Completed', {
             query: req.query,
-            filesZipped: validResults.length,
             cutoffDate: cutoffDate?.toLocaleString("zh-TW", { timeZone: 'ROC' }) || 'None'
         });
 
@@ -391,20 +384,17 @@ async function prepareDownloadTasks(members, cutoffDate, targetBlogId) {
  * Executes the specific download task.
  * Returns formatted object for archiver or null on failure.
  */
-async function executeDownloadTask(task) {
+async function executeDownloadTask(task, archive) {
     try {
-        console.log(task)
         // Retry logic can be added inside loadUrlStream or here if needed
         const data = await loadUrlStream(task.url, 3);
-        if (!data) throw new Error('Empty response');
-
-        return {
-            data,
-            archivePath: task.archivePath,
-            date: task.date
-        };
+        if (data) {
+            archive.append(data, { name: task.archivePath, date: task.date });
+        } else {
+            throw new Error('Failed to load stream');
+        }
     } catch (err) {
         console.warn(`✖ Failed: ${task.memberName} -> ${task.url} : ${err.message}`);
-        return null;
+
     }
 }
