@@ -174,7 +174,7 @@ export const getBlogDashboard = async (req, res, next) => {
 
         const dashboardData = Array.from(groupsMap, ([group, members]) => ({ group, members }));
 
-        res.json({ success: true, data: dashboardData });
+        res.json(dashboardData);
     } catch (err) {
         next(err);
     }
@@ -222,8 +222,7 @@ export const getBlogList = async (req, res, next) => {
         const paginatedBlogs = allBlogs.slice(startIndex, endIndex);
 
         res.json({
-            success: true,
-            data: paginatedBlogs,
+            list: paginatedBlogs,
             has_more: endIndex < allBlogs.length
         });
 
@@ -247,7 +246,7 @@ export const getBlogDetail = async (req, res, next) => {
         const htmlContent = await getBlogHtmlContent(id, group);
 
         if (htmlContent) {
-            res.json({ success: true, data: { htmlContent } });
+            res.json({ htmlContent });
         } else {
             res.status(404).json({ success: false, error: 'Blog content not found.' });
         }
