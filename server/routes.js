@@ -10,15 +10,15 @@ router.post('/login', loginUser);
 // POST /api/logout
 router.post('/logout', logoutUser);
 // GET /verify-session
-router.get('/verify-session', verifySession);
+router.post('/verify-session', verifySession);
 // GET /api/message
-router.get('/message', checkAuth, getMessageDashboard);
+router.post('/message', checkAuth, getMessageDashboard);
 // GET /api/message/export
-router.get('/message/export', checkAuth, getMessagesZip);
+router.post('/message/export', checkAuth, getMessagesZip);
 // 2. Add the new blog routes
-router.get('/blog/', checkAuth, getBlogDetail);
-router.get('/blog/dashboard', checkAuth, getBlogDashboard);
-router.get('/blog/list', checkAuth, getBlogList);
-router.get('/blog/export', checkAuth, getBlogsZip);
+router.post('/blog/', checkAuth, getBlogDetail);
+router.post('/blog/dashboard', checkAuth, getBlogDashboard);
+router.post('/blog/list', checkAuth, getBlogList);
+router.post('/blog/export', checkAuth, getBlogsZip);
 
 export default router;

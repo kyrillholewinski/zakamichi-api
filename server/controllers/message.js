@@ -6,7 +6,7 @@ import { parseDateTime } from '../../utils/date.js';
 import { MESSAGE_BOT_PATH, RECORD_FILE_PATH, DEFAULT_TIMEZONE_OFFSET_MS, CONFIG_FILE_NAME, DESIRE_FILE_NAME } from '../../config/config.js';
 
 export const getMessageDashboard = async (req, res, next) => {
-    const { group, member, limit = 20, page = 1 } = req.query;
+    const { group, member, limit = 20, page = 1 } = req.body;
     const nLimit = parseInt(limit, 10);
     const nPage = parseInt(page, 10);
 
@@ -96,7 +96,7 @@ export const getMessageDashboard = async (req, res, next) => {
  * @param {object} m - The member object
  * @param {archiver.Archiver} archive - The archiver instance
  * @param {Date | null} cutoffDate - The date to filter messages
- * @param {string | null} memberQuery - The specific member from req.query
+ * @param {string | null} memberQuery - The specific member from req.body
  */
 async function processMemberMessages(group, m, archive, cutoffDate, memberQuery) {
     try {
@@ -152,8 +152,8 @@ async function processMemberMessages(group, m, archive, cutoffDate, memberQuery)
 
 export const getMessagesZip = async (req, res, next) => {
     try {
-        const { member, date } = req.query;
-        console.log(req.query)
+        const { member, date } = req.body;
+        console.log(req.body)
 
         // 1) Determine cutoff date
         const defaultDate = new Date(Date.now() - 7 * 24 * 3600 * 1000); // 7 days ago

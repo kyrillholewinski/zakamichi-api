@@ -186,7 +186,7 @@ export const getBlogDashboard = async (req, res, next) => {
  */
 export const getBlogList = async (req, res, next) => {
     try {
-        const { page = 1, limit = 20, member, group } = req.query;
+        const { page = 1, limit = 20, member, group } = req.body;
         const nLimit = parseInt(limit, 10);
         const nPage = parseInt(page, 10);
 
@@ -238,7 +238,7 @@ export const getBlogList = async (req, res, next) => {
  */
 export const getBlogDetail = async (req, res, next) => {
     try {
-        const { id, group } = req.query;
+        const { id, group } = req.body;
 
         if (!id || !group) {
             return res.status(400).json({ success: false, error: 'Blog ID and Group are required.' });
@@ -262,7 +262,7 @@ export const getBlogDetail = async (req, res, next) => {
  */
 export const getBlogsZip = async (req, res, next) => {
     try {
-        const { member, group, date, blogId } = req.query;
+        const { member, group, date, blogId } = req.body;
 
         // 1. Determine Cutoff Date
         let cutoffDate = null;
@@ -311,7 +311,7 @@ export const getBlogsZip = async (req, res, next) => {
         await archive.finalize();
 
         console.log('[EXPORT] Completed', {
-            query: req.query,
+            query: req.body,
             cutoffDate: cutoffDate?.toLocaleString("zh-TW", { timeZone: 'ROC' }) || 'None'
         });
 
