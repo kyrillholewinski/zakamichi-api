@@ -1,6 +1,7 @@
-import 'dotenv/config';
 import path from 'path'
+import dotenv from 'dotenv'
 
+dotenv.config()
 // Server Configuration
 export const PORT = parseInt(process.env.PORT || '22350', 10);
 
