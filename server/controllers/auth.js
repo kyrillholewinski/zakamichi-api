@@ -15,7 +15,7 @@ export const loginUser = async (req, res) => {
   if (record && record.password == password) {
     // 2. Generate the Token
     const token = jwt.sign(
-      { role: record.admin }, // Payload
+      { role: record.role, user }, // Payload
       JWT_SECRET,
       { expiresIn: '1d' } // Token expiry
     );
@@ -55,7 +55,8 @@ export const checkAuth = (req, res, next) => {
   // For this example, we'll just check if the token matches.
   try {
     // Decode and Verify logic
-    jwt.verify(token, JWT_SECRET);
+    const decoded = jwt.verify(token, JWT_SECRET);
+    req.user = decoded;
     next();
   } catch (err) {
     // If expired or invalid, return 401

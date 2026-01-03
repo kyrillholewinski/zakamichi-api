@@ -1,14 +1,19 @@
 import archiver from 'archiver';
 import path from 'path';
-import fs from 'fs'; // Keep 'fs' for createReadStream
+import fs from 'fs';
+import os from 'os';
+import pLimit from 'p-limit';
 import { getJson } from '../../utils/file.js';
 import { parseDateTime } from '../../utils/date.js';
 import { MESSAGE_BOT_PATH, RECORD_FILE_PATH, DEFAULT_TIMEZONE_OFFSET_MS, CONFIG_FILE_NAME, DESIRE_FILE_NAME } from '../../config/config.js';
+
+const PROCESSOR_THREADS = os.availableParallelism() || 4;
 
 export const getMessageDashboard = async (req, res, next) => {
     const { group, member, limit = 20, page = 1 } = req.body;
     const nLimit = parseInt(limit, 10);
     const nPage = parseInt(page, 10);
+    const includeRecentMessages = Boolean(member);
 
     try {
         const configGroups = await getJson(CONFIG_FILE_NAME);
@@ -27,39 +32,41 @@ export const getMessageDashboard = async (req, res, next) => {
             const memberPromises = membersToProcess.map(async (m) => {
                 try {
                     const memberDir = path.join(RECORD_FILE_PATH, g.name, m.name);
-                    const msgPath = path.join(memberDir, `${m.id}_timeline_messages.json`);
                     const memberInfoPath = path.join(memberDir, `${m.id}_members.json`);
-
+                    const memberInfos = await getJson(memberInfoPath); // Read member info
                     // --- OPTIMIZATION: Fetch member's files in parallel ---
-                    const [messages, memberInfos] = await Promise.all([
-                        getJson(msgPath),      // Read messages
-                        getJson(memberInfoPath) // Read member info
-                    ]);
-
                     const member_info = memberInfos.length > 0 ? memberInfos[0] : {};
-
                     // --- NOTE: This is still a performance bottleneck if files are large ---
-                    // See "Further Considerations" below.
-                    messages.sort((a, b) => new Date(b.published_at) - new Date(a.published_at));
-                    const startIndex = (nPage - 1) * nLimit;
-                    const endIndex = nPage * nLimit;
-                    const paginatedMessages = messages.slice(startIndex, endIndex);
-                    const has_more = endIndex < messages.length;
+                    let paginatedMessages = [];
+                    let has_more = false;
+                    let message_count = 0;
+                    if (includeRecentMessages) {
+                        // Read messages
+                        const msgPath = path.join(memberDir, `${m.id}_timeline_messages.json`);
+                        const messages = await getJson(msgPath);
+                        message_count = messages.length;
+                        messages.sort((a, b) => new Date(b.published_at) - new Date(a.published_at));
+                        const startIndex = (nPage - 1) * nLimit;
+                        const endIndex = nPage * nLimit;
+                        paginatedMessages = messages.slice(startIndex, endIndex);
+                        has_more = endIndex < messages.length;
+                    }
 
                     // Return the data for this member
                     return {
                         member: m.name,
                         member_id: m.id,
-                        message_count: messages.length,
+                        message_count,
                         thumbnail: member_info.thumbnail,
                         phone_image: member_info.phone_image,
                         has_more,
                         recent_messages: paginatedMessages.map(msg => ({
                             id: msg.id,
                             published_at: msg.published_at,
-                            text: msg.text?.slice(0, 200) || '',
+                            text: msg.text || '',
                             local_file: msg.local_file || null,
                             type: msg.type,
+                            translated_text: msg.translated_text || '',
                         })),
                     };
                 } catch (err) {
@@ -89,71 +96,9 @@ export const getMessageDashboard = async (req, res, next) => {
     }
 };
 
-/**
- * Asynchronously processes all messages for a single member.
- * It checks file existence and appends files to the archive in parallel.
- * @param {object} group - The group object
- * @param {object} m - The member object
- * @param {archiver.Archiver} archive - The archiver instance
- * @param {Date | null} cutoffDate - The date to filter messages
- * @param {string | null} memberQuery - The specific member from req.body
- */
-async function processMemberMessages(group, m, archive, cutoffDate, memberQuery) {
-    try {
-        const memberDir = path.join(RECORD_FILE_PATH, group.name, m.name);
-        const messagesJsonPath = path.join(memberDir, `${m.id}_timeline_messages.json`);
-
-        const existingMessages = await getJson(messagesJsonPath);
-        if (existingMessages.length === 0) {
-            return; // This member has no messages, skip
-        }
-
-        const archivePathPrefix = memberQuery ? '' : path.join(group.name, m.name);
-        for (const msg of existingMessages) {
-            const msgDate = new Date(msg.published_at);
-
-            // Filter by date
-            if (cutoffDate && msgDate < cutoffDate) {
-                continue;
-            }
-
-            // Skip if no file
-            if (!msg.local_file) {
-                continue;
-            }
-
-            // Push an async function to our promise array
-            // This function checks for the file and appends it
-            const fileName = path.join(MESSAGE_BOT_PATH, msg.local_file);
-            try {
-                // ASYNC CHECK: Check for read access without blocking
-                await fs.promises.access(fileName, fs.constants.R_OK);
-                // File exists, append it.
-                // archive.append is non-blocking and handles the stream.
-
-                const fileDate = new Date(msgDate.getTime() + DEFAULT_TIMEZONE_OFFSET_MS);
-                const archiveName = path.join(archivePathPrefix, path.basename(msg.local_file));
-                const data = fs.createReadStream(fileName)
-                archive.append(data, { name: archiveName, date: fileDate });
-
-            } catch (fileErr) {
-                // File doesn't exist or isn't readable, warn and skip
-                if (fileErr.code === 'ENOENT') {
-                    console.warn(`File not found, skipping: ${fileName}`);
-                } else {
-                    console.error(`Error accessing file ${fileName}:`, fileErr.message);
-                }
-            }
-        }
-    } catch (err) {
-        console.error(`Failed to process member ${m.name}:`, err.message);
-    }
-}
-
 export const getMessagesZip = async (req, res, next) => {
     try {
         const { member, date } = req.body;
-        console.log(req.body)
 
         // 1) Determine cutoff date
         const defaultDate = new Date(Date.now() - 7 * 24 * 3600 * 1000); // 7 days ago
@@ -167,14 +112,21 @@ export const getMessagesZip = async (req, res, next) => {
 
         // Load configs
         const configGroups = await getJson(CONFIG_FILE_NAME);
-        const desiredMembers = await getJson(DESIRE_FILE_NAME);
+        const { user: authUser } = req.user;
+        let desiredList = [];
+        if (authUser) {
+            const { desired } = await getJson(path.join('record', `${authUser}.json`));
+            desiredList = desired || [];
+        } else {
+            desiredList = await getJson(DESIRE_FILE_NAME);
+        }
 
         // OPTIMIZATION: Use a Set for fast O(1) lookups
-        const desiredSet = new Set(desiredMembers);
+        const desiredSet = new Set(desiredList);
 
         // NOTE: zlib level 9 is max compression but slowest.
         // For faster speed, use level 6 (default) or 1 (fastest).
-        const archive = archiver('zip', { zlib: { level: 9 } });
+        const archive = archiver('zip', { zlib: { level: 1 } });
 
         // Handle archive errors
         archive.on('warning', (err) => {
@@ -184,16 +136,19 @@ export const getMessagesZip = async (req, res, next) => {
                 console.error('Archive warning:', err);
             }
         });
+
         archive.on('error', (err) => {
             console.error('Fatal archive error:', err.message);
             res.status(500).send({ error: err.message });
         });
 
-        res.attachment('Messages.zip');
+        res.attachment('Message.zip');
         archive.pipe(res);
 
-        // OPTIMIZATION: Process all members in parallel
-        const processingPromises = [];
+        const limit = pLimit(PROCESSOR_THREADS);
+
+        // OPTIMIZATION: Process all files in parallel with a shared limiter
+        const appendTasks = [];
 
         for (const group of configGroups) {
             for (const m of group.members) {
@@ -202,20 +157,139 @@ export const getMessagesZip = async (req, res, next) => {
                 const isDesiredListMatch = !member && desiredSet.has(m.name); // Only check set if no specific member query
 
                 if (isQueryMatch || isDesiredListMatch) {
-                    // Add this member's processing task to the promise array
-                    processingPromises.push(
-                        processMemberMessages(group, m, archive, cutoffDate, member)
-                    );
+                    try {
+                        const memberDir = path.join(RECORD_FILE_PATH, group.name, m.name);
+                        const messagesJsonPath = path.join(memberDir, `${m.id}_timeline_messages.json`);
+                        const existingMessages = await getJson(messagesJsonPath);
+                        if (existingMessages.length === 0) {
+                            continue; // This member has no messages, skip
+                        }
+                        const archivePathPrefix = member ? '' : path.join(group.name, m.name);
+                        for (const msg of existingMessages) {
+                            const msgDate = new Date(msg.published_at);
+
+                            // Filter by date
+                            if (cutoffDate && msgDate < cutoffDate) {
+                                continue;
+                            }
+
+                            // Skip if no file
+                            if (!msg.local_file) {
+                                continue;
+                            }
+
+                            const fileName = path.join(MESSAGE_BOT_PATH, msg.local_file);
+                            const fileDate = new Date(msgDate.getTime() + DEFAULT_TIMEZONE_OFFSET_MS);
+                            const archiveName = path.join(archivePathPrefix, path.basename(msg.local_file));
+
+                            appendTasks.push(limit(async () => {
+                                try {
+                                    // ASYNC CHECK: Check for read access without blocking
+                                    await fs.promises.access(fileName, fs.constants.R_OK);
+                                    // File exists, append it.
+                                    // archive.append is non-blocking and handles the stream.
+                                    const data = fs.createReadStream(fileName); // 64KB chunk size       
+                                    archive.append(data, { name: archiveName, date: fileDate });
+                                } catch (fileErr) {
+                                    // File doesn't exist or isn't readable, warn and skip
+                                    if (fileErr.code === 'ENOENT') {
+                                        console.warn(`File not found, skipping: ${fileName}`);
+                                    } else {
+                                        console.error(`Error accessing file ${fileName}:`, fileErr.message);
+                                    }
+                                }
+                            }));
+                        }
+                    } catch (err) {
+                        console.error(`Failed to process member ${m.name}:`, err.message);
+                    }
                 }
             }
         }
 
-        // Wait for all members to be processed in parallel
-        await Promise.all(processingPromises);
+        // Wait for all files to be processed in parallel
+        await Promise.all(appendTasks);
 
         // All files have been appended, finalize the archive.
         await archive.finalize();
 
+    } catch (err) {
+        next(err); // Pass error to global handler
+    }
+};
+
+export const getMessagesPrompt = async (req, res, next) => {
+    try {
+        const { member, date } = req.body;
+        // 1) Determine cutoff date
+        const defaultDate = new Date(Date.now() - 7 * 24 * 3600 * 1000); // 7 days ago
+        let lastUpdate = defaultDate;
+        if (date) {
+            const parsed = new Date(parseDateTime(date, 'yyyyMMdd'));
+            if (!isNaN(parsed)) lastUpdate = parsed;
+        }
+
+        const cutoffDate = lastUpdate;
+
+        // Load configs
+        const configGroups = await getJson(CONFIG_FILE_NAME);
+        const { user: authUser } = req.user;
+        let desiredList = [];
+        if (authUser) {
+            const { desired } = await getJson(path.join('record', `${authUser}.json`));
+            desiredList = desired || [];
+        } else {
+            desiredList = await getJson(DESIRE_FILE_NAME);
+        }
+
+        // OPTIMIZATION: Use a Set for fast O(1) lookups
+        const desiredSet = new Set(desiredList);
+
+        // OPTIMIZATION: Process all files in parallel with a shared limiter
+        let prompts = []
+
+        for (const group of configGroups) {
+            for (const m of group.members) {
+                // Check if this member is desired
+                const isQueryMatch = member && m.name === member;
+                const isDesiredListMatch = !member && desiredSet.has(m.name); // Only check set if no specific member query
+
+                if (isQueryMatch || isDesiredListMatch) {
+                    try {
+                        const memberDir = path.join(RECORD_FILE_PATH, group.name, m.name);
+                        const messagesJsonPath = path.join(memberDir, `${m.id}_timeline_messages.json`);
+                        const existingMessages = await getJson(messagesJsonPath);
+                        if (existingMessages.length === 0) {
+                            continue; // This member has no messages, skip
+                        }
+                        for (const msg of existingMessages) {
+                            const msgDate = new Date(msg.published_at);
+                            // Filter by date
+                            if (cutoffDate && msgDate < cutoffDate) {
+                                continue;
+                            }
+                            if (!msg.text) {
+                                continue;
+                            }
+                            prompts.push({
+                                member: m.name,
+                                published_at: new Date(msg.published_at),
+                                text: msg.text || ''
+                            });
+                        }
+                    } catch (err) {
+                        console.error(`Failed to process member ${m.name}:`, err.message);
+                    }
+                }
+            }
+        }
+        prompts = prompts.sort((a, b) => b.published_at - a.published_at);
+        const jsonPayload = JSON.stringify(prompts);
+        res.set({
+            'Content-Type': 'application/json; charset=utf-8',
+            'Content-Disposition': 'attachment; filename="messages.json"'
+        });
+        res.send(Buffer.from(jsonPayload, 'utf8'));
     } catch (err) {
         next(err); // Pass error to global handler
     }

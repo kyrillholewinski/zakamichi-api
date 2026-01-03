@@ -3,6 +3,7 @@ import path from 'path';
 import os from 'os';
 import archiver from 'archiver';
 import pLimit from 'p-limit';
+import htmlParser from 'node-html-parser';
 
 import { getJson, ensureDirectoryExists } from "../../utils/file.js";
 import { parseDateTime } from '../../utils/date.js';
@@ -13,7 +14,7 @@ import { BLOG_BOT_PATH, DESIRE_FILE_NAME } from "../../config/config.js";
 // 1. Configuration & Constants
 // ==========================================
 
-const PROCESSOR_THREADS = os.cpus().length;
+const PROCESSOR_THREADS = os.availableParallelism() || 4;
 const SOURCE_EXTENSIONS = new Set(['.jpeg', '.jpg', '.png', '.gif']); // Set for O(1) lookup
 const DEFAULT_LAST_UPDATE = new Date(2000, 1, 2);
 
@@ -275,7 +276,14 @@ export const getBlogsZip = async (req, res, next) => {
 
         // 2. Filter Members
         const allMembers = await getAllBlogMembers();
-        const desiredList = await getJson(DESIRE_FILE_NAME);
+        const authUser = req.user?.user;
+        let desiredList = [];
+        if (authUser) {
+            const userRecord = await getJson(path.join('record', `${authUser}.json`));
+            desiredList = userRecord?.desired || [];
+        } else {
+            desiredList = await getJson(DESIRE_FILE_NAME);
+        }
 
         let membersToProcess = [];
         if (member && group) {
@@ -289,7 +297,7 @@ export const getBlogsZip = async (req, res, next) => {
         }
 
         // 3. Initialize Archive Stream
-        const archive = archiver('zip', { zlib: { level: 9 } });
+        const archive = archiver('zip', { zlib: { level: 1 } });
         res.attachment('DCIM.zip');
         archive.pipe(res);
 
@@ -321,6 +329,85 @@ export const getBlogsZip = async (req, res, next) => {
     }
 };
 
+export const getBlogsPrompt = async (req, res, next) => {
+    try {
+        const { member, group, date, blogId } = req.body;
+        // 1. Determine Cutoff Date
+        let cutoffDate = null;
+        if (date) {
+            // If no specific member is selected, we might use a date filter
+            const parsed = new Date(parseDateTime(date, 'yyyyMMdd'));
+            cutoffDate = parsed || DEFAULT_LAST_UPDATE;
+        } else {
+            cutoffDate = DEFAULT_LAST_UPDATE;
+        }
+
+        // 2. Filter Members
+        const allMembers = await getAllBlogMembers();
+        const authUser = req.user?.user;
+        let desiredList = [];
+        if (authUser) {
+            const userRecord = await getJson(path.join('record', `${authUser}.json`));
+            desiredList = userRecord?.desired || [];
+        } else {
+            desiredList = await getJson(DESIRE_FILE_NAME);
+        }
+        let membersToProcess = [];
+        if (member && group) {
+            membersToProcess = allMembers.filter(m => m.Name === member && m.Group === group);
+        } else {
+            membersToProcess = allMembers.filter(m => desiredList.includes(m.Name));
+        }
+        if (!membersToProcess.length) {
+            return res.status(404).json({ error: 'No matching members found' });
+        }
+
+        // Execute downloads with concurrency limit
+        const limit = pLimit(PROCESSOR_THREADS);
+
+        const processTasks = [];
+        // 3. Prepare Prompts
+        let prompts = [];
+
+        for (const m of membersToProcess) {
+            let blogList = m.BlogList || [];
+            if (blogId) {
+                blogList = blogList.filter(b => b.ID === blogId);
+            } else if (cutoffDate) {
+                blogList = blogList.filter(b => new Date(b.DateTime) >= cutoffDate);
+            }
+
+            processTasks.push(...blogList.map(blog =>
+                limit(async () => {
+                    const htmlContent = await getBlogHtmlContent(blog.ID, m.Group);
+                    const blogDateTime = new Date(blog.DateTime);
+                    if (htmlContent) {
+                        const content = htmlContent ? htmlParser.parse(htmlContent)?.innerText : '';
+                        prompts.push({
+                            ID: blog.ID,
+                            Title: blog.Title,
+                            DateTime: blogDateTime,
+                            Member: m.Name,
+                            Content: content
+                        })
+                    }
+                })
+            ));
+        }
+
+        await Promise.all(processTasks);
+        prompts = prompts.sort((a, b) => b.DateTime - a.DateTime);
+        const jsonPayload = JSON.stringify(prompts);
+        res.set({
+            'Content-Type': 'application/json; charset=utf-8',
+            'Content-Disposition': 'attachment; filename="blogs.json"'
+        });
+        res.send(Buffer.from(jsonPayload, 'utf8'));
+    } catch (err) {
+        next(err);
+    }
+}
+
 // ==========================================
 // 4. Zip Utility Functions
 // ==========================================
@@ -350,30 +437,30 @@ async function prepareDownloadTasks(members, cutoffDate, targetBlogId) {
         const memberImgFolder = path.join(baseFolder, member.Name);
         const tzOffsetMs = 8 * 60 * 60 * 1000; // UTC+8
 
-        for (const [index, blog] of blogList.entries()) {
+        for (const blog of blogList) {
             const { DateTime, ImageList = [], ID } = blog;
             if (!ImageList.length) continue;
-
             const blogTimestamp = new Date(DateTime).getTime();
-            const fileDate = new Date(blogTimestamp + tzOffsetMs + index * 1000);
-
             // Filter only valid extensions
             const validImages = ImageList.filter(rel =>
                 SOURCE_EXTENSIONS.has(path.extname(rel).toLowerCase())
             );
 
-            validImages.forEach(rel => {
+            // Prepare tasks
+            for (const [index, rel] of validImages.entries()) {
                 const ext = path.extname(rel).toLowerCase();
                 const base = path.basename(rel, ext);
                 const filename = sanitizeFileName(base, ext, ID);
-
+                // Calculate file date with slight increment to avoid identical timestamps
+                const fileDate = new Date(blogTimestamp + tzOffsetMs + index * 1000);
+                // Create task object
                 tasks.push({
                     url: `${homePage}${rel}`,
                     archivePath: path.join(memberImgFolder, filename),
                     date: fileDate,
                     memberName: member.Name
                 });
-            });
+            }
         }
     }
     return tasks;
