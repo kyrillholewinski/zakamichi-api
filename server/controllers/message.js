@@ -98,7 +98,7 @@ export const getMessageDashboard = async (req, res, next) => {
 
 export const getMessagesZip = async (req, res, next) => {
     try {
-        const { member, date } = req.body;
+        const { member, date } = req.query;
 
         // 1) Determine cutoff date
         const defaultDate = new Date(Date.now() - 7 * 24 * 3600 * 1000); // 7 days ago

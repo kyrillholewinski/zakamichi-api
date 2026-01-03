@@ -17,7 +17,7 @@ router.post('/verify-session', verifySession);
 // GET /api/message
 router.post('/message', checkAuth, getMessageDashboard);
 // GET /api/message/export
-router.post('/message/export', checkAuth, getMessagesZip);
+router.get('/message/export', checkAuth, getMessagesZip);
 // GET /api/message/prompt
 router.post('/message/prompt', checkAuth, getMessagesPrompt);
 
@@ -29,7 +29,7 @@ router.post('/blog/dashboard', checkAuth, getBlogDashboard);
 // GET /api/blog/list
 router.post('/blog/list', checkAuth, getBlogList);
 // GET /api/blog/export
-router.post('/blog/export', checkAuth, getBlogsZip);
+router.get('/blog/export', checkAuth, getBlogsZip);
 // GET /api/blog/prompt
 router.post('/blog/prompt', checkAuth, getBlogsPrompt);
 

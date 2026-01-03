@@ -262,7 +262,7 @@ export const getBlogDetail = async (req, res, next) => {
  */
 export const getBlogsZip = async (req, res, next) => {
     try {
-        const { member, group, date, blogId } = req.body;
+        const { member, group, date, blogId } = req.query;
 
         // 1. Determine Cutoff Date
         let cutoffDate = null;
@@ -303,7 +303,7 @@ export const getBlogsZip = async (req, res, next) => {
 
         // 4. Process Downloads
         // We flatten the process to download images concurrently across members/blogs
-        const downloadTasks = await prepareDownloadTasks(membersToProcess, cutoffDate, blogId);
+        const downloadTasks = prepareDownloadTasks(membersToProcess, cutoffDate, blogId);
 
         // Execute downloads with concurrency limit
         const limit = pLimit(PROCESSOR_THREADS);
@@ -416,7 +416,7 @@ export const getBlogsPrompt = async (req, res, next) => {
  * Prepares a flat list of download tasks.
  * Does not download yet, just calculates URLs and paths.
  */
-async function prepareDownloadTasks(members, cutoffDate, targetBlogId) {
+function prepareDownloadTasks(members, cutoffDate, targetBlogId) {
     const tasks = [];
 
     for (const member of members) {
@@ -481,6 +481,5 @@ async function executeDownloadTask(task, archive) {
         }
     } catch (err) {
         console.warn(`✖ Failed: ${task.memberName} -> ${task.url} : ${err.message}`);
-
     }
 }
