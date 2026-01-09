@@ -115,7 +115,8 @@ export const getMessagesZip = async (req, res, next) => {
         const { user: authUser } = req.user;
         let desiredList = [];
         if (authUser) {
-            const { desired } = await getJson(path.join('record', `${authUser}.json`));
+            const userDesirePath = path.join('record', `${authUser}.json`);
+            const { desired } = await getJson(userDesirePath);
             desiredList = desired || [];
         } else {
             desiredList = await getJson(DESIRE_FILE_NAME);
@@ -169,14 +170,9 @@ export const getMessagesZip = async (req, res, next) => {
                             const msgDate = new Date(msg.published_at);
 
                             // Filter by date
-                            if (cutoffDate && msgDate < cutoffDate) {
-                                continue;
-                            }
-
+                            if (cutoffDate && msgDate < cutoffDate) continue;
                             // Skip if no file
-                            if (!msg.local_file) {
-                                continue;
-                            }
+                            if (!msg.local_file) continue;
 
                             const fileName = path.join(MESSAGE_BOT_PATH, msg.local_file);
                             const fileDate = new Date(msgDate.getTime() + DEFAULT_TIMEZONE_OFFSET_MS);
@@ -188,7 +184,7 @@ export const getMessagesZip = async (req, res, next) => {
                                     await fs.promises.access(fileName, fs.constants.R_OK);
                                     // File exists, append it.
                                     // archive.append is non-blocking and handles the stream.
-                                    const data = fs.createReadStream(fileName); // 64KB chunk size       
+                                    const data = fs.createReadStream(fileName, { highWaterMark: 64 * 1024 });
                                     archive.append(data, { name: archiveName, date: fileDate });
                                 } catch (fileErr) {
                                     // File doesn't exist or isn't readable, warn and skip

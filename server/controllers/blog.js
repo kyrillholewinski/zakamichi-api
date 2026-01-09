@@ -96,8 +96,8 @@ async function getBlogHtmlContent(blogId, groupName) {
     const htmlContentFilePath = path.join(contentFolderPath, `${blogId}.html`);
 
     try {
-        await fs.promises.access(htmlContentFilePath);
-        return await fs.promises.readFile(htmlContentFilePath, 'utf-8');
+        await fs.promises.access(htmlContentFilePath, fs.constants.R_OK);
+        return await fs.promises.readFile(htmlContentFilePath, 'utf-8', fs.constants.R_OK);
     } catch {
         return null;
     }
@@ -447,15 +447,15 @@ function prepareDownloadTasks(members, cutoffDate, targetBlogId) {
             );
 
             // Prepare tasks
-            for (const [index, rel] of validImages.entries()) {
-                const ext = path.extname(rel).toLowerCase();
-                const base = path.basename(rel, ext);
+            for (const [index, imgPath] of validImages.entries()) {
+                const ext = path.extname(imgPath).toLowerCase();
+                const base = path.basename(imgPath, ext);
                 const filename = sanitizeFileName(base, ext, ID);
                 // Calculate file date with slight increment to avoid identical timestamps
-                const fileDate = new Date(blogTimestamp + tzOffsetMs + index * 1000);
+                const fileDate = new Date(blogTimestamp + tzOffsetMs + index * 60 * 1000);
                 // Create task object
                 tasks.push({
-                    url: `${homePage}${rel}`,
+                    url: `${homePage}${imgPath}`,
                     archivePath: path.join(memberImgFolder, filename),
                     date: fileDate,
                     memberName: member.Name
