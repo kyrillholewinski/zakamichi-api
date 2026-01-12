@@ -261,6 +261,24 @@ export const getBlogDetail = async (req, res, next) => {
  * Downloads images and streams a ZIP file.
  */
 export const getBlogsZip = async (req, res, next) => {
+    let archive = null;
+    const abortController = new AbortController();
+    let aborted = false;
+    const abortAll = (reason) => {
+        if (aborted) return;
+        aborted = true;
+        abortController.abort();
+        if (archive) {
+            archive.destroy();
+        }
+        console.warn(`[EXPORT] Aborted: ${reason}`);
+    };
+    res.on('close', () => {
+        if (!res.writableEnded) {
+            abortAll('client_disconnect');
+        }
+    });
+
     try {
         const { member, group, date, blogId } = req.query;
 
@@ -295,26 +313,32 @@ export const getBlogsZip = async (req, res, next) => {
         if (!membersToProcess.length) {
             return res.status(404).json({ error: 'No matching members found' });
         }
-
+        // Prepare Download Tasks
+        const downloadTasks = prepareDownloadTasks(membersToProcess, cutoffDate, blogId);
         // 3. Initialize Archive Stream
-        const archive = archiver('zip', { zlib: { level: 1 } });
+        archive = archiver('zip', { zlib: { level: 1 } });
+        archive.on('error', (err) => {
+            console.error('Archive error:', err.message);
+            abortAll('archive_error');
+        });
         res.attachment('DCIM.zip');
         archive.pipe(res);
 
         // 4. Process Downloads
-        // We flatten the process to download images concurrently across members/blogs
-        const downloadTasks = prepareDownloadTasks(membersToProcess, cutoffDate, blogId);
-
         // Execute downloads with concurrency limit
         const limit = pLimit(PROCESSOR_THREADS);
         const downloadPromises = downloadTasks.map(task =>
-            limit(() => executeDownloadTask(task, archive))
+            limit(() => executeDownloadTask(task, archive, {
+                signal: abortController.signal,
+                isAborted: () => aborted,
+            }))
         );
 
         // Wait for all downloads to complete (resolves to objects or null)
         await Promise.all(downloadPromises);
 
         // 5. Finalize
+        if (aborted) return;
         await archive.finalize();
 
         console.log('[EXPORT] Completed', {
@@ -328,6 +352,51 @@ export const getBlogsZip = async (req, res, next) => {
         if (!res.headersSent) next(err);
     }
 };
+
+export const getBlogImageLinks = async (req, res, next) => {
+       try {
+        const { member, group, date, blogId } = req.body;
+
+        // 1. Determine Cutoff Date
+        let cutoffDate = null;
+        if (date) {
+            // If no specific member is selected, we might use a date filter
+            const parsed = new Date(parseDateTime(date, 'yyyyMMdd'));
+            cutoffDate = parsed || DEFAULT_LAST_UPDATE;
+        } else {
+            cutoffDate = DEFAULT_LAST_UPDATE;
+        }
+
+        // 2. Filter Members
+        const allMembers = await getAllBlogMembers();
+        const authUser = req.user?.user;
+        let desiredList = [];
+        if (authUser) {
+            const userRecord = await getJson(path.join('record', `${authUser}.json`));
+            desiredList = userRecord?.desired || [];
+        } else {
+            desiredList = await getJson(DESIRE_FILE_NAME);
+        }
+
+        let membersToProcess = [];
+        if (member && group) {
+            membersToProcess = allMembers.filter(m => m.Name === member && m.Group === group);
+        } else {
+            membersToProcess = allMembers.filter(m => desiredList.includes(m.Name));
+        }
+
+        if (!membersToProcess.length) {
+            return res.status(404).json({ error: 'No matching members found' });
+        }
+        // Prepare Download Tasks
+        const downloadTasks = prepareDownloadTasks(membersToProcess, cutoffDate, blogId);
+
+        return res.json(downloadTasks);
+
+    } catch (err) {
+        next(err);
+    }
+}
 
 export const getBlogsPrompt = async (req, res, next) => {
     try {
@@ -470,16 +539,25 @@ function prepareDownloadTasks(members, cutoffDate, targetBlogId) {
  * Executes the specific download task.
  * Returns formatted object for archiver or null on failure.
  */
-async function executeDownloadTask(task, archive) {
+async function executeDownloadTask(task, archive, options = {}) {
+    const { signal, isAborted } = options;
+    const { url, archivePath, date, memberName } = task;
+    if (isAborted?.()) return;
     try {
         // Retry logic can be added inside loadUrlStream or here if needed
-        const data = await loadUrlStream(task.url, 3);
+        const data = await loadUrlStream(url, 3, { signal });
+        if (isAborted?.()) {
+            if (data && typeof data.destroy === 'function') {
+                data.destroy();
+            }
+            return;
+        }
         if (data) {
-            archive.append(data, { name: task.archivePath, date: task.date });
+            archive.append(data, { name: archivePath, date: date });
         } else {
             throw new Error('Failed to load stream');
         }
     } catch (err) {
-        console.warn(`✖ Failed: ${task.memberName} -> ${task.url} : ${err.message}`);
+        console.warn(`✖ Failed: ${memberName} -> ${url} : ${err.message}`);
     }
 }

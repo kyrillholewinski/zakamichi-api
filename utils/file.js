@@ -13,8 +13,8 @@ export const ensureDirectoryExists = async (dirPath) => {
 
 export const getJson = async (filePath, defaultValue = []) => {
     try {
-        await fs.promises.access(filePath);
-        const data = await fs.promises.readFile(filePath, 'utf-8');
+        await fs.promises.access(filePath, fs.constants.R_OK);
+        const data = await fs.promises.readFile(filePath, 'utf-8', fs.constants.R_OK);
         return JSON.parse(data) || defaultValue;
     } catch (err) {
         if (err.code !== 'ENOENT') {

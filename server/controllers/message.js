@@ -97,6 +97,22 @@ export const getMessageDashboard = async (req, res, next) => {
 };
 
 export const getMessagesZip = async (req, res, next) => {
+    let archive = null;
+    let aborted = false;
+    const abortAll = (reason) => {
+        if (aborted) return;
+        aborted = true;
+        if (archive) {
+            archive.destroy();
+        }
+        console.warn(`[MESSAGE ZIP] Aborted: ${reason}`);
+    };
+    res.on('close', () => {
+        if (!res.writableEnded) {
+            abortAll('client_disconnect');
+        }
+    });
+
     try {
         const { member, date } = req.query;
 
@@ -127,7 +143,7 @@ export const getMessagesZip = async (req, res, next) => {
 
         // NOTE: zlib level 9 is max compression but slowest.
         // For faster speed, use level 6 (default) or 1 (fastest).
-        const archive = archiver('zip', { zlib: { level: 1 } });
+        archive = archiver('zip', { zlib: { level: 1 } });
 
         // Handle archive errors
         archive.on('warning', (err) => {
@@ -140,7 +156,10 @@ export const getMessagesZip = async (req, res, next) => {
 
         archive.on('error', (err) => {
             console.error('Fatal archive error:', err.message);
-            res.status(500).send({ error: err.message });
+            abortAll('archive_error');
+            if (!res.headersSent) {
+                res.status(500).send({ error: err.message });
+            }
         });
 
         res.attachment('Message.zip');
@@ -152,7 +171,9 @@ export const getMessagesZip = async (req, res, next) => {
         const appendTasks = [];
 
         for (const group of configGroups) {
+            if (aborted) break;
             for (const m of group.members) {
+                if (aborted) break;
                 // Check if this member is desired
                 const isQueryMatch = member && m.name === member;
                 const isDesiredListMatch = !member && desiredSet.has(m.name); // Only check set if no specific member query
@@ -179,12 +200,18 @@ export const getMessagesZip = async (req, res, next) => {
                             const archiveName = path.join(archivePathPrefix, path.basename(msg.local_file));
 
                             appendTasks.push(limit(async () => {
+                                if (aborted) return;
                                 try {
                                     // ASYNC CHECK: Check for read access without blocking
                                     await fs.promises.access(fileName, fs.constants.R_OK);
                                     // File exists, append it.
                                     // archive.append is non-blocking and handles the stream.
+                                    if (aborted) return;
                                     const data = fs.createReadStream(fileName, { highWaterMark: 64 * 1024 });
+                                    if (aborted) {
+                                        data.destroy();
+                                        return;
+                                    }
                                     archive.append(data, { name: archiveName, date: fileDate });
                                 } catch (fileErr) {
                                     // File doesn't exist or isn't readable, warn and skip
@@ -207,6 +234,7 @@ export const getMessagesZip = async (req, res, next) => {
         await Promise.all(appendTasks);
 
         // All files have been appended, finalize the archive.
+        if (aborted) return;
         await archive.finalize();
 
     } catch (err) {

@@ -58,16 +58,29 @@ export async function httpRequest(axiosConfig) {
   }
 }
 
-export async function loadUrlStream(url, retries = 3) {
+export async function loadUrlStream(url, retries = 3, options = {}) {
+    const { signal, timeoutMs = 15000 } = options;
     for (let i = 0; i < retries; i++) {
         try {
-            const { status, data } = await axios.get(url, { responseType: 'stream' });
+            const { status, data } = await axios.get(url, {
+                responseType: 'stream',
+                signal,
+                timeout: timeoutMs,
+            });
             if (status === 200) {
                 return data;
-            } else {
-                console.error(`Failed with status ${response.status}. Retry: ${i}`);
             }
+            if (data && typeof data.destroy === 'function') {
+                data.destroy();
+            }
+            console.error(`Failed with status ${status}. Retry: ${i}`);
         } catch (ex) {
+            if (ex?.response?.data && typeof ex.response.data.destroy === 'function') {
+                ex.response.data.destroy();
+            }
+            if (signal?.aborted) {
+                break;
+            }
             console.error(`Connect to ${url} Fail: ${ex.message} Retry: ${i}`);
         }
     }
