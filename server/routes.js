@@ -16,8 +16,8 @@ router.post('/verify-session', verifySession);
 // -------------- MESSAGE ROUTES --------------
 // POST /api/message
 router.post('/message', checkAuth, getMessageDashboard);
-// POST /api/message/export
-router.post('/message/export', checkAuth, getMessagesZip);
+// GET /api/message/export
+router.get('/message/export', checkAuth, getMessagesZip);
 // POST /api/message/prompt
 router.post('/message/prompt', checkAuth, getMessagesPrompt);
 

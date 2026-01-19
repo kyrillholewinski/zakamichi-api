@@ -23,31 +23,36 @@ const IdolGroup = Object.freeze({
     Nogizaka46: 'Nogizaka46',
     Sakurazaka46: 'Sakurazaka46',
     Hinatazaka46: 'Hinatazaka46',
-    Keyakizaka46: 'Keyakizaka46',
     Bokuao: 'Bokuao',
+    Keyakizaka46: 'Keyakizaka46'
 });
 
 // Centralized Configuration: Maps Group IDs to their specific settings
 const GROUP_CONFIG = {
     [IdolGroup.Nogizaka46]: {
         url: 'https://nogizaka46.com',
-        folderName: '◢乃木坂46'
+        folderName: '◢乃木坂46',
+        name: '乃木坂46'
     },
     [IdolGroup.Sakurazaka46]: {
         url: 'https://sakurazaka46.com',
-        folderName: '◢櫻坂46'
+        folderName: '◢櫻坂46',
+        name: '櫻坂46'
     },
     [IdolGroup.Hinatazaka46]: {
         url: '',
-        folderName: '◢日向坂46'
-    },
-    [IdolGroup.Keyakizaka46]: {
-        url: '',
-        folderName: 'Keyakizaka46' // Assuming default
+        folderName: '◢日向坂46',
+        name: '日向坂46'
     },
     [IdolGroup.Bokuao]: {
         url: '',
-        folderName: '僕青'
+        folderName: '僕青',
+        name: '僕青'
+    },
+    [IdolGroup.Keyakizaka46]: {
+        url: '',
+        folderName: '◢欅坂46',
+        name: '欅坂46'
     }
 };
 
@@ -139,13 +144,13 @@ export const getBlogDashboard = async (req, res, next) => {
         const groupsMap = new Map();
 
         for (const member of allMembers) {
-            const groupName = member.Group || 'Unknown';
-
+            const groupId = member.Group || 'Unknown';
             const groupConfig = GROUP_CONFIG[member.Group];
             const homePage = groupConfig?.url || '';
+            const groupName = groupConfig?.name || 'Unknown';
 
-            if (!groupsMap.has(groupName)) {
-                groupsMap.set(groupName, []);
+            if (!groupsMap.has(groupId)) {
+                groupsMap.set(groupId, []);
             }
 
             // Calculate last update time efficiently
@@ -162,18 +167,21 @@ export const getBlogDashboard = async (req, res, next) => {
 
             const m = {
                 name: member.Name,
-                group: groupName,
+                group: groupId,
                 thumbnail: thumbnail,
                 blog_count: member.BlogList.length,
                 last_update_time: lastUpdateTime
             }
 
             if (member.Name && member.Name != "運営スタッフ") {
-                groupsMap.get(groupName).push(m);
+                groupsMap.get(groupId).push(m);
             }
         }
 
-        const dashboardData = Array.from(groupsMap, ([group, members]) => ({ group, members }));
+        const dashboardData = Array.from(groupsMap, ([group, members]) => {
+            const groupName = GROUP_CONFIG[group]?.name || 'Unknown';
+            return { id: group, name: groupName, members };
+        });
 
         res.json(dashboardData);
     } catch (err) {
@@ -354,7 +362,7 @@ export const getBlogsZip = async (req, res, next) => {
 };
 
 export const getBlogImageLinks = async (req, res, next) => {
-       try {
+    try {
         const { member, group, date, blogId } = req.body;
 
         // 1. Determine Cutoff Date
