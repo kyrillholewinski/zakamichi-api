@@ -147,7 +147,6 @@ export const getBlogDashboard = async (req, res, next) => {
             const groupId = member.Group || 'Unknown';
             const groupConfig = GROUP_CONFIG[member.Group];
             const homePage = groupConfig?.url || '';
-            const groupName = groupConfig?.name || 'Unknown';
 
             if (!groupsMap.has(groupId)) {
                 groupsMap.set(groupId, []);

@@ -21,12 +21,22 @@ export const getMessageDashboard = async (req, res, next) => {
             return res.status(404).json({ error: 'No groups found' });
         }
 
+        const { user: authUser } = req.user;
+        let ignoreList = [];
+        if (authUser) {
+            const userDesirePath = path.join('record', `${authUser}.json`);
+            const { ignore } = await getJson(userDesirePath);
+            ignoreList = ignore || [];
+        } else {
+            ignoreList = await getJson(DESIRE_FILE_NAME);
+        }
+
         const dashboardData = [];
         // Groups are still processed sequentially, which is fine.
         for (const g of configGroups) {
             if (group && g.name !== group) continue;
             // --- OPTIMIZATION: Filter members before processing ---
-            const membersToProcess = g.members.filter(m => !member || m.name === member);
+            const membersToProcess = g.members.filter(m => (!member || m.name === member ) && !ignoreList.includes(m.name));
 
             // --- OPTIMIZATION: Process all members *within* this group in parallel ---
             const memberPromises = membersToProcess.map(async (m) => {
@@ -99,6 +109,7 @@ export const getMessageDashboard = async (req, res, next) => {
 export const getMessagesZip = async (req, res, next) => {
     let archive = null;
     let aborted = false;
+
     const abortAll = (reason) => {
         if (aborted) return;
         aborted = true;
@@ -107,6 +118,7 @@ export const getMessagesZip = async (req, res, next) => {
         }
         console.warn(`[MESSAGE ZIP] Aborted: ${reason}`);
     };
+
     res.on('close', () => {
         if (!res.writableEnded) {
             abortAll('client_disconnect');
