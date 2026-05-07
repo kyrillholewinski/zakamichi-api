@@ -64,6 +64,13 @@ export const checkAuth = (req, res, next) => {
   }
 };
 
+export const checkAdmin = (req, res, next) => {
+  if (!req.user || req.user.role !== 'admin') {
+    return res.status(403).json({ success: false, error: 'Admin access required' });
+  }
+  next();
+};
+
 export const verifySession = (req, res) => {
   const token = req.cookies.token; // Read httpOnly cookie
 

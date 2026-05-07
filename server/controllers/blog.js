@@ -28,7 +28,7 @@ const IdolGroup = Object.freeze({
 });
 
 // Centralized Configuration: Maps Group IDs to their specific settings
-const GROUP_CONFIG = {
+export const GROUP_CONFIG = {
     [IdolGroup.Nogizaka46]: {
         url: 'https://nogizaka46.com',
         folderName: '◢乃木坂46',
@@ -78,7 +78,7 @@ const getGroupRecordPath = (groupName) => {
 /**
  * Retrieves the full list of members and their blogs from all groups.
  */
-async function getAllBlogMembers() {
+export async function getAllBlogMembers() {
     const groups = Object.keys(GROUP_CONFIG);
 
     // Map groups to their status file path promise
