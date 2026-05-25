@@ -3,6 +3,7 @@ import { getMessagesZip, getMessageDashboard, getMessagesPrompt } from './contro
 import { loginUser, logoutUser, verifySession, checkAuth, checkAdmin } from './controllers/auth.js';
 import { getBlogDashboard, getBlogList, getBlogDetail, getBlogsZip,getBlogImageLinks, getBlogsPrompt } from './controllers/blog.js';
 import { getUserProfile, getAllMembers, updateDesired, updatePassword, getUsers, createUser, deleteUser } from './controllers/fanclub.js';
+import { getHistoryGroups, getHistoryList, getHistoryCollection, exportHistoryCollection, refreshHistory } from './controllers/history.js';
 
 const router = Router();
 
@@ -51,5 +52,17 @@ router.get('/fanclub/users', checkAuth, checkAdmin, getUsers);
 router.post('/fanclub/users', checkAuth, checkAdmin, createUser);
 // DELETE /api/fanclub/users/:username  (admin only)
 router.delete('/fanclub/users/:username', checkAuth, checkAdmin, deleteUser);
+
+// -------------- FANCLUB HISTORY ROUTES --------------
+// GET /api/fanclub/history/groups
+router.get('/fanclub/history/groups', checkAuth, getHistoryGroups);
+// GET /api/fanclub/history/collection?group=&code=
+router.get('/fanclub/history/collection', checkAuth, getHistoryCollection);
+// GET /api/fanclub/history/export?group=&code=  (zip download)
+router.get('/fanclub/history/export', checkAuth, exportHistoryCollection);
+// GET /api/fanclub/history?group=
+router.get('/fanclub/history', checkAuth, getHistoryList);
+// POST /api/fanclub/history/refresh?group=
+router.post('/fanclub/history/refresh', checkAuth, refreshHistory);
 
 export default router;
