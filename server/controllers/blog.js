@@ -1,7 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
-import archiver from 'archiver';
+import { ZipArchive } from 'archiver';
 import pLimit from 'p-limit';
 import htmlParser from 'node-html-parser';
 
@@ -323,7 +323,7 @@ export const getBlogsZip = async (req, res, next) => {
         // Prepare Download Tasks
         const downloadTasks = prepareDownloadTasks(membersToProcess, cutoffDate, blogId);
         // 3. Initialize Archive Stream
-        archive = archiver('zip', { zlib: { level: 1 } });
+        archive = new ZipArchive({ zlib: { level: 1 } });
         archive.on('error', (err) => {
             console.error('Archive error:', err.message);
             abortAll('archive_error');

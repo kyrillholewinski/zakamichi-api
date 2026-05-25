@@ -1,4 +1,4 @@
-import archiver from 'archiver';
+import { ZipArchive } from 'archiver';
 import path from 'path';
 import fs from 'fs';
 import os from 'os';
@@ -10,10 +10,24 @@ import { MESSAGE_BOT_PATH, RECORD_FILE_PATH, DEFAULT_TIMEZONE_OFFSET_MS, CONFIG_
 const PROCESSOR_THREADS = os.availableParallelism() || 4;
 
 export const getMessageDashboard = async (req, res, next) => {
-    const { group, member, limit = 20, page = 1 } = req.body;
+    const { group, member, limit = 20, page = 1, types, until_date } = req.body;
     const nLimit = parseInt(limit, 10);
     const nPage = parseInt(page, 10);
     const includeRecentMessages = Boolean(member);
+
+    const typeFilter = Array.isArray(types) && types.length > 0 ? new Set(types) : null;
+
+    let cutoffEnd = null;
+    if (until_date) {
+        const parsed = parseDateTime(until_date, 'yyyyMMdd');
+        if (parsed) {
+            const d = new Date(parsed);
+            if (!isNaN(d)) {
+                d.setHours(23, 59, 59, 999);
+                cutoffEnd = d;
+            }
+        }
+    }
 
     try {
         const configGroups = await getJson(CONFIG_FILE_NAME);
@@ -53,7 +67,13 @@ export const getMessageDashboard = async (req, res, next) => {
                     if (includeRecentMessages) {
                         // Read messages
                         const msgPath = path.join(memberDir, `${m.id}_timeline_messages.json`);
-                        const messages = await getJson(msgPath);
+                        let messages = await getJson(msgPath);
+                        if (typeFilter) {
+                            messages = messages.filter(msg => typeFilter.has(msg.type));
+                        }
+                        if (cutoffEnd) {
+                            messages = messages.filter(msg => new Date(msg.published_at) <= cutoffEnd);
+                        }
                         message_count = messages.length;
                         messages.sort((a, b) => new Date(b.published_at) - new Date(a.published_at));
                         const startIndex = (nPage - 1) * nLimit;
@@ -155,7 +175,7 @@ export const getMessagesZip = async (req, res, next) => {
 
         // NOTE: zlib level 9 is max compression but slowest.
         // For faster speed, use level 6 (default) or 1 (fastest).
-        archive = archiver('zip', { zlib: { level: 1 } });
+        archive = new ZipArchive({ zlib: { level: 1 } });
 
         // Handle archive errors
         archive.on('warning', (err) => {
