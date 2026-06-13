@@ -2,17 +2,20 @@ import path from 'path';
 import fs from 'fs';
 import { getJson } from '../../utils/file.js';
 import { getAllBlogMembers, GROUP_CONFIG } from './blog.js';
+import { isValidUsername, safeRecordPath } from '../../utils/validate.js';
+import { hashPassword, verifyAndUpgrade } from '../../utils/password.js';
+
+const MIN_PASSWORD_LENGTH = 8;
 
 const writeUserRecord = async (username, data) => {
-    const filePath = path.join('record', `${username}.json`);
-    await fs.promises.writeFile(filePath, JSON.stringify(data, null, 4), 'utf-8');
+    await fs.promises.writeFile(safeRecordPath(username), JSON.stringify(data, null, 4), 'utf-8');
 };
 
 // GET /api/fanclub/profile
 export const getUserProfile = async (req, res) => {
     try {
         const { user: authUser, role } = req.user;
-        const userRecord = await getJson(path.join('record', `${authUser}.json`));
+        const userRecord = await getJson(safeRecordPath(authUser));
         return res.json({
             success: true,
             data: {
@@ -22,7 +25,8 @@ export const getUserProfile = async (req, res) => {
             }
         });
     } catch (err) {
-        return res.status(500).json({ success: false, error: err.message });
+        console.error(err);
+        return res.status(500).json({ success: false, error: 'Internal server error' });
     }
 };
 
@@ -45,7 +49,8 @@ export const getAllMembers = async (_req, res) => {
         }));
         return res.json({ success: true, data: groups });
     } catch (err) {
-        return res.status(500).json({ success: false, error: err.message });
+        console.error(err);
+        return res.status(500).json({ success: false, error: 'Internal server error' });
     }
 };
 
@@ -57,13 +62,13 @@ export const updateDesired = async (req, res) => {
         if (!Array.isArray(desired)) {
             return res.status(400).json({ success: false, error: 'desired must be an array' });
         }
-        const filePath = path.join('record', `${authUser}.json`);
-        const userRecord = await getJson(filePath);
+        const userRecord = await getJson(safeRecordPath(authUser));
         userRecord.desired = desired;
         await writeUserRecord(authUser, userRecord);
         return res.json({ success: true, message: 'Desired list updated' });
     } catch (err) {
-        return res.status(500).json({ success: false, error: err.message });
+        console.error(err);
+        return res.status(500).json({ success: false, error: 'Internal server error' });
     }
 };
 
@@ -75,16 +80,20 @@ export const updatePassword = async (req, res) => {
         if (!currentPassword || !newPassword) {
             return res.status(400).json({ success: false, error: 'currentPassword and newPassword are required' });
         }
-        const filePath = path.join('record', `${authUser}.json`);
-        const userRecord = await getJson(filePath);
-        if (userRecord.password !== currentPassword) {
+        if (newPassword.length < MIN_PASSWORD_LENGTH) {
+            return res.status(400).json({ success: false, error: `New password must be at least ${MIN_PASSWORD_LENGTH} characters` });
+        }
+        const userRecord = await getJson(safeRecordPath(authUser));
+        const { ok } = verifyAndUpgrade(userRecord, currentPassword);
+        if (!ok) {
             return res.status(401).json({ success: false, error: 'Current password is incorrect' });
         }
-        userRecord.password = newPassword;
+        userRecord.password = hashPassword(newPassword);
         await writeUserRecord(authUser, userRecord);
         return res.json({ success: true, message: 'Password updated successfully' });
     } catch (err) {
-        return res.status(500).json({ success: false, error: err.message });
+        console.error(err);
+        return res.status(500).json({ success: false, error: 'Internal server error' });
     }
 };
 
@@ -105,7 +114,8 @@ export const getUsers = async (_req, res) => {
         }));
         return res.json({ success: true, data: users });
     } catch (err) {
-        return res.status(500).json({ success: false, error: err.message });
+        console.error(err);
+        return res.status(500).json({ success: false, error: 'Internal server error' });
     }
 };
 
@@ -116,21 +126,28 @@ export const createUser = async (req, res) => {
         if (!username || !password || !role) {
             return res.status(400).json({ success: false, error: 'username, password, and role are required' });
         }
+        if (!isValidUsername(username)) {
+            return res.status(400).json({ success: false, error: 'username may only contain letters, numbers, _ and - (max 32 chars)' });
+        }
+        if (password.length < MIN_PASSWORD_LENGTH) {
+            return res.status(400).json({ success: false, error: `Password must be at least ${MIN_PASSWORD_LENGTH} characters` });
+        }
         if (!['admin', 'guest'].includes(role)) {
             return res.status(400).json({ success: false, error: 'role must be admin or guest' });
         }
-        const filePath = path.join('record', `${username}.json`);
+        const filePath = safeRecordPath(username);
         try {
             await fs.promises.access(filePath);
             return res.status(409).json({ success: false, error: 'User already exists' });
         } catch {
             // File doesn't exist — proceed
         }
-        const newUser = { password, role, desired: [], ignore: [] };
+        const newUser = { password: hashPassword(password), role, desired: [], ignore: [] };
         await fs.promises.writeFile(filePath, JSON.stringify(newUser, null, 4), 'utf-8');
         return res.json({ success: true, message: 'User created successfully' });
     } catch (err) {
-        return res.status(500).json({ success: false, error: err.message });
+        console.error(err);
+        return res.status(500).json({ success: false, error: 'Internal server error' });
     }
 };
 
@@ -139,10 +156,13 @@ export const deleteUser = async (req, res) => {
     try {
         const { username } = req.params;
         const { user: authUser } = req.user;
+        if (!isValidUsername(username)) {
+            return res.status(400).json({ success: false, error: 'Invalid username' });
+        }
         if (username === authUser) {
             return res.status(400).json({ success: false, error: 'Cannot delete your own account' });
         }
-        const filePath = path.join('record', `${username}.json`);
+        const filePath = safeRecordPath(username);
         try {
             await fs.promises.access(filePath);
         } catch {
@@ -151,6 +171,7 @@ export const deleteUser = async (req, res) => {
         await fs.promises.unlink(filePath);
         return res.json({ success: true, message: 'User deleted successfully' });
     } catch (err) {
-        return res.status(500).json({ success: false, error: err.message });
+        console.error(err);
+        return res.status(500).json({ success: false, error: 'Internal server error' });
     }
 };

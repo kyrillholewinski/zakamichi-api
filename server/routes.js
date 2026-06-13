@@ -4,16 +4,28 @@ import { loginUser, logoutUser, verifySession, checkAuth, checkAdmin } from './c
 import { getBlogDashboard, getBlogList, getBlogDetail, getBlogsZip,getBlogImageLinks, getBlogsPrompt } from './controllers/blog.js';
 import { getUserProfile, getAllMembers, updateDesired, updatePassword, getUsers, createUser, deleteUser } from './controllers/fanclub.js';
 import { getHistoryGroups, getHistoryList, getHistoryCollection, exportHistoryCollection, refreshHistory } from './controllers/history.js';
+import { getRegistrationOptions, verifyRegistration, getAuthenticationOptions, verifyAuthentication, listPasskeys, deletePasskey } from './controllers/passkey.js';
+import { authLimiter } from './middleware/security.js';
 
 const router = Router();
 
 // -------------- AUTH ROUTES --------------
 // POST /api/login
-router.post('/login', loginUser);
+router.post('/login', authLimiter, loginUser);
 // POST /api/logout
 router.post('/logout', logoutUser);
 // GET /verify-session
 router.post('/verify-session', verifySession);
+
+// -------------- PASSKEY ROUTES --------------
+// Login with a passkey (usernameless / discoverable) — no auth required
+router.post('/passkey/login/options', authLimiter, getAuthenticationOptions);
+router.post('/passkey/login/verify', authLimiter, verifyAuthentication);
+// Register / manage passkeys — must be logged in
+router.post('/passkey/register/options', checkAuth, getRegistrationOptions);
+router.post('/passkey/register/verify', checkAuth, verifyRegistration);
+router.get('/passkey/list', checkAuth, listPasskeys);
+router.delete('/passkey/:id', checkAuth, deletePasskey);
 
 // -------------- MESSAGE ROUTES --------------
 // POST /api/message

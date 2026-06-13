@@ -190,7 +190,7 @@ export const getMessagesZip = async (req, res, next) => {
             console.error('Fatal archive error:', err.message);
             abortAll('archive_error');
             if (!res.headersSent) {
-                res.status(500).send({ error: err.message });
+                res.status(500).send({ error: 'Internal server error' });
             }
         });
 

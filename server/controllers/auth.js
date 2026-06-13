@@ -1,6 +1,9 @@
+import fs from 'fs';
 import { getJson } from "../../utils/file.js";
 import jwt from 'jsonwebtoken';
-import { JWT_SECRET } from "../../config/config.js";
+import { JWT_SECRET, COOKIE_SECURE } from "../../config/config.js";
+import { isValidUsername, safeRecordPath } from "../../utils/validate.js";
+import { verifyAndUpgrade } from "../../utils/password.js";
 
 export const loginUser = async (req, res) => {
   const { user, password } = req.body;
@@ -8,31 +11,44 @@ export const loginUser = async (req, res) => {
   if (!password) {
     return res.status(400).json({ success: false, error: 'Password is required' });
   }
-
-  const record = await getJson(`record/${user}.json`);
-
-  // 1. Validate Password (Replace with your real logic)
-  if (record && record.password == password) {
-    // 2. Generate the Token
-    const token = jwt.sign(
-      { role: record.role, user }, // Payload
-      JWT_SECRET,
-      { expiresIn: '1d' } // Token expiry
-    );
-
-    // 3. SET THE COOKIE (The Key Change)
-    res.cookie('token', token, {
-      httpOnly: true,  // Security: Client JS cannot read this
-      secure: process.env.NODE_ENV === 'production', // HTTPS only in production
-      sameSite: 'strict', // CSRF protection
-      maxAge: 24 * 60 * 60 * 1000 // 1 day in milliseconds
-    });
-
-    res.json({ success: true, message: 'Login successful' });
-  } else {
-    // Incorrect password
-    res.status(401).json({ success: false, error: 'Incorrect password' });
+  if (!isValidUsername(user)) {
+    // Same generic message as a bad password — don't reveal which field was wrong.
+    return res.status(401).json({ success: false, error: 'Incorrect username or password' });
   }
+
+  const recordPath = safeRecordPath(user);
+  const record = await getJson(recordPath, null);
+
+  // Verify, transparently upgrading any legacy plaintext password to bcrypt.
+  const { ok, upgraded } = record ? verifyAndUpgrade(record, password) : { ok: false, upgraded: false };
+
+  if (!ok) {
+    return res.status(401).json({ success: false, error: 'Incorrect username or password' });
+  }
+
+  if (upgraded) {
+    try {
+      await fs.promises.writeFile(recordPath, JSON.stringify(record, null, 4), 'utf-8');
+    } catch (err) {
+      console.error('Failed to persist upgraded password hash:', err);
+      // Non-fatal: the login still succeeds; we'll re-attempt the upgrade next time.
+    }
+  }
+
+  const token = jwt.sign(
+    { role: record.role, user },
+    JWT_SECRET,
+    { expiresIn: '1d' }
+  );
+
+  res.cookie('token', token, {
+    httpOnly: true,
+    secure: COOKIE_SECURE,
+    sameSite: 'strict',
+    maxAge: 24 * 60 * 60 * 1000
+  });
+
+  res.json({ success: true, message: 'Login successful' });
 };
 
 // --- NEW FUNCTION ADDED ---

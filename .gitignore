@@ -1,6 +1,12 @@
 # Node modules
 node_modules/
 
+# Secrets and local user data (NEVER commit these)
+.env
+.env.example
+.env.example1
+record/
+
 # Logs
 logs/
 *.log

@@ -139,7 +139,8 @@ export const getHistoryList = async (req, res) => {
             }));
         return res.json({ success: true, data });
     } catch (err) {
-        return res.status(500).json({ success: false, error: err.message });
+        console.error(err);
+        return res.status(500).json({ success: false, error: 'Internal server error' });
     }
 };
 
@@ -157,7 +158,8 @@ export const getHistoryCollection = async (req, res) => {
         }
         return res.json({ success: true, data: col });
     } catch (err) {
-        return res.status(500).json({ success: false, error: err.message });
+        console.error(err);
+        return res.status(500).json({ success: false, error: 'Internal server error' });
     }
 };
 
@@ -237,6 +239,7 @@ export const refreshHistory = async (req, res) => {
         const collections = await crawl(group);
         return res.json({ success: true, data: { count: collections.length } });
     } catch (err) {
-        return res.status(500).json({ success: false, error: err.message });
+        console.error(err);
+        return res.status(500).json({ success: false, error: 'Internal server error' });
     }
 };
