@@ -21,10 +21,13 @@ app.use(helmet({
       defaultSrc: ["'self'"],
       // style-loader injects styles inline; blog content may carry inline styles.
       styleSrc: ["'self'", "'unsafe-inline'"],
-      scriptSrc: ["'self'"],
+      // Cloudflare auto-injects its Web Analytics beacon when proxying the site.
+      scriptSrc: ["'self'", 'https://static.cloudflareinsights.com'],
       // Member photos / blog images are served from external HTTPS CDNs.
       imgSrc: ["'self'", 'data:', 'https:'],
-      connectSrc: ["'self'"],
+      // Video/audio assets are served from the R2 public bucket.
+      mediaSrc: ["'self'", 'https://pub-afd85e4b782042e3b1856c07d0f93ccd.r2.dev'],
+      connectSrc: ["'self'", 'https://cloudflareinsights.com'],
       objectSrc: ["'none'"],
       frameAncestors: ["'none'"], // clickjacking protection
       baseUri: ["'self'"],
