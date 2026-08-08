@@ -194,9 +194,23 @@ export const getBlogDashboard = async (req, res, next) => {
  */
 export const getBlogList = async (req, res, next) => {
     try {
-        const { page = 1, limit = 20, member, group } = req.body;
+        const { page = 1, limit = 20, member, group, until_date } = req.body;
         const nLimit = parseInt(limit, 10);
         const nPage = parseInt(page, 10);
+
+        // Optional inclusive "up to this day" cutoff, same yyyyMMdd contract the
+        // message list uses.
+        let cutoffEnd = null;
+        if (until_date) {
+            const parsed = parseDateTime(until_date, 'yyyyMMdd');
+            if (parsed) {
+                const d = new Date(parsed);
+                if (!isNaN(d)) {
+                    d.setHours(23, 59, 59, 999);
+                    cutoffEnd = d;
+                }
+            }
+        }
 
         const allMembers = await getAllBlogMembers();
         let allBlogs = [];
@@ -219,6 +233,10 @@ export const getBlogList = async (req, res, next) => {
                     group: m.Group
                 }))
             );
+        }
+
+        if (cutoffEnd) {
+            allBlogs = allBlogs.filter(b => new Date(b.DateTime) <= cutoffEnd);
         }
 
         // Sort Descending

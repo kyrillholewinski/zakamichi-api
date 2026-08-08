@@ -5,6 +5,7 @@ import { getBlogDashboard, getBlogList, getBlogDetail, getBlogsZip,getBlogImageL
 import { getUserProfile, getAllMembers, updateDesired, updatePassword, getUsers, createUser, deleteUser } from './controllers/fanclub.js';
 import { getHistoryGroups, getHistoryList, getHistoryCollection, exportHistoryCollection, refreshHistory } from './controllers/history.js';
 import { getRegistrationOptions, verifyRegistration, getAuthenticationOptions, verifyAuthentication, listPasskeys, deletePasskey } from './controllers/passkey.js';
+import { listTVPrograms, saveTVProgram, deleteTVProgram } from './controllers/tvprogram.js';
 import { authLimiter } from './middleware/security.js';
 
 const router = Router();
@@ -64,6 +65,14 @@ router.get('/fanclub/users', checkAuth, checkAdmin, getUsers);
 router.post('/fanclub/users', checkAuth, checkAdmin, createUser);
 // DELETE /api/fanclub/users/:username  (admin only)
 router.delete('/fanclub/users/:username', checkAuth, checkAdmin, deleteUser);
+
+// -------------- TV PROGRAM ROUTES --------------
+// GET /api/tvprogram
+router.get('/tvprogram', checkAuth, listTVPrograms);
+// POST /api/tvprogram  (admin only, create or update)
+router.post('/tvprogram', checkAuth, checkAdmin, saveTVProgram);
+// DELETE /api/tvprogram/:id  (admin only)
+router.delete('/tvprogram/:id', checkAuth, checkAdmin, deleteTVProgram);
 
 // -------------- FANCLUB HISTORY ROUTES --------------
 // GET /api/fanclub/history/groups
