@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { getMessagesZip, getMessageDashboard, getMessagesPrompt } from './controllers/message.js';
+import { getMessagesZip, getMessageDashboard, getMessagesPrompt, getMessageStats } from './controllers/message.js';
 import { loginUser, logoutUser, verifySession, checkAuth, checkAdmin } from './controllers/auth.js';
 import { getBlogDashboard, getBlogList, getBlogDetail, getBlogsZip,getBlogImageLinks, getBlogsPrompt } from './controllers/blog.js';
 import { getUserProfile, getAllMembers, updateDesired, updatePassword, getUsers, createUser, deleteUser } from './controllers/fanclub.js';
@@ -35,6 +35,8 @@ router.post('/message', checkAuth, getMessageDashboard);
 router.get('/message/export', checkAuth, getMessagesZip);
 // POST /api/message/prompt
 router.post('/message/prompt', checkAuth, getMessagesPrompt);
+// POST /api/message/stats
+router.post('/message/stats', checkAuth, getMessageStats);
 
 // -------------- BLOG ROUTES --------------
 // POST /api/blog/detail

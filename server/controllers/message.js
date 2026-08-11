@@ -126,6 +126,123 @@ export const getMessageDashboard = async (req, res, next) => {
     }
 };
 
+// ── Message frequency analytics ──────────────────────────────────────────────
+//
+// Buckets every member's timeline into per-period counts server-side. Doing this
+// on the client would mean shipping ~150k message records; here it collapses to
+// one small number per member per period.
+//
+// Bucketing uses DEFAULT_TIMEZONE_OFFSET_MS (the project's UTC+8 convention, as
+// in the zip export) so a "day" matches what users see, independent of the
+// server's own timezone.
+
+const MAX_PERIODS = { daily: 366, monthly: 60 };
+const DEFAULT_PERIODS = { daily: 30, monthly: 12 };
+
+const shiftedDate = (ms) => new Date(ms + DEFAULT_TIMEZONE_OFFSET_MS);
+
+const periodKey = (date, granularity) => {
+    const y = date.getUTCFullYear();
+    const m = String(date.getUTCMonth() + 1).padStart(2, '0');
+    if (granularity === 'monthly') return `${y}-${m}`;
+    return `${y}-${m}-${String(date.getUTCDate()).padStart(2, '0')}`;
+};
+
+// Ascending list of the last `count` periods, ending with the current one.
+const buildPeriods = (granularity, count) => {
+    const now = shiftedDate(Date.now());
+    const periods = [];
+    if (granularity === 'monthly') {
+        for (let i = count - 1; i >= 0; i--) {
+            periods.push(periodKey(new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - i, 1)), 'monthly'));
+        }
+    } else {
+        const base = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
+        for (let i = count - 1; i >= 0; i--) {
+            periods.push(periodKey(new Date(base - i * 86400000), 'daily'));
+        }
+    }
+    return periods;
+};
+
+// POST /api/message/stats
+export const getMessageStats = async (req, res, next) => {
+    try {
+        const { granularity = 'daily', group, members } = req.body;
+        if (granularity !== 'daily' && granularity !== 'monthly') {
+            return res.status(400).json({ success: false, error: "granularity must be 'daily' or 'monthly'" });
+        }
+
+        const requested = parseInt(req.body.periods, 10);
+        const periodCount = Number.isNaN(requested)
+            ? DEFAULT_PERIODS[granularity]
+            : Math.min(Math.max(requested, 1), MAX_PERIODS[granularity]);
+
+        const periods = buildPeriods(granularity, periodCount);
+        const periodIndex = new Map(periods.map((p, i) => [p, i]));
+        const memberFilter = Array.isArray(members) && members.length ? new Set(members) : null;
+
+        const configGroups = await getJson(CONFIG_FILE_NAME);
+        if (!configGroups.length) {
+            return res.status(404).json({ success: false, error: 'No groups found' });
+        }
+
+        // Same per-user hidden-member handling as the dashboard.
+        const { user: authUser } = req.user;
+        let ignoreList = [];
+        if (authUser) {
+            const { ignore } = await getJson(path.join('record', `${authUser}.json`));
+            ignoreList = ignore || [];
+        }
+        const ignoreSet = new Set(ignoreList);
+
+        const limit = pLimit(PROCESSOR_THREADS);
+        const tasks = [];
+
+        for (const g of configGroups) {
+            if (group && g.name !== group) continue;
+            for (const m of g.members) {
+                if (ignoreSet.has(m.name)) continue;
+                if (memberFilter && !memberFilter.has(m.name)) continue;
+
+                tasks.push(limit(async () => {
+                    try {
+                        const msgPath = path.join(RECORD_FILE_PATH, g.name, m.name, `${m.id}_timeline_messages.json`);
+                        const messages = await getJson(msgPath);
+
+                        const counts = new Array(periods.length).fill(0);
+                        let total = 0;
+                        for (const msg of messages) {
+                            if (!msg.published_at) continue;
+                            const ts = new Date(msg.published_at).getTime();
+                            if (Number.isNaN(ts)) continue;
+                            const idx = periodIndex.get(periodKey(shiftedDate(ts), granularity));
+                            if (idx === undefined) continue; // outside the window
+                            counts[idx] += 1;
+                            total += 1;
+                        }
+                        return { member: m.name, member_id: m.id, group: g.name, total, counts };
+                    } catch (err) {
+                        console.error(`Stats failed for ${m.name}: ${err.message}`);
+                        return null;
+                    }
+                }));
+            }
+        }
+
+        const rows = (await Promise.all(tasks)).filter(Boolean);
+        // Busiest first, so the client can default to the most active members.
+        rows.sort((a, b) => b.total - a.total || a.member.localeCompare(b.member));
+
+        return res.json({
+            success: true,
+            data: { granularity, periods, members: rows },
+        });
+    } catch (err) {
+        next(err);
+    }
+};
+
 export const getMessagesZip = async (req, res, next) => {
     let archive = null;
     let aborted = false;
