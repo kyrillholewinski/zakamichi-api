@@ -1,11 +1,13 @@
 import { Router } from 'express';
 import { getMessagesZip, getMessageDashboard, getMessagesPrompt, getMessageStats } from './controllers/message.js';
 import { loginUser, logoutUser, verifySession, checkAuth, checkAdmin } from './controllers/auth.js';
-import { getBlogDashboard, getBlogList, getBlogDetail, getBlogsZip,getBlogImageLinks, getBlogsPrompt } from './controllers/blog.js';
+import { getBlogDashboard, getBlogList, getBlogDetail, getBlogsZip,getBlogImageLinks, getBlogsPrompt, getBlogMedia } from './controllers/blog.js';
 import { getUserProfile, getAllMembers, updateDesired, updatePassword, getUsers, createUser, deleteUser } from './controllers/fanclub.js';
 import { getHistoryGroups, getHistoryList, getHistoryCollection, exportHistoryCollection, refreshHistory } from './controllers/history.js';
 import { getRegistrationOptions, verifyRegistration, getAuthenticationOptions, verifyAuthentication, listPasskeys, deletePasskey } from './controllers/passkey.js';
 import { listTVPrograms, saveTVProgram, deleteTVProgram } from './controllers/tvprogram.js';
+import { getCombinedZip } from './controllers/export.js';
+import { getPromptMembers, getCombinedPrompt } from './controllers/prompt.js';
 import { authLimiter } from './middleware/security.js';
 
 const router = Router();
@@ -45,6 +47,8 @@ router.post('/blog/', checkAuth, getBlogDetail);
 router.post('/blog/dashboard', checkAuth, getBlogDashboard);
 // POST /api/blog/list
 router.post('/blog/list', checkAuth, getBlogList);
+// POST /api/blog/media  (paginated image gallery for one member)
+router.post('/blog/media', checkAuth, getBlogMedia);
 // POST /api/blog/image/links
 router.post('/blog/image/links', checkAuth, getBlogImageLinks);
 // GET /api/blog/export
@@ -67,6 +71,16 @@ router.get('/fanclub/users', checkAuth, checkAdmin, getUsers);
 router.post('/fanclub/users', checkAuth, checkAdmin, createUser);
 // DELETE /api/fanclub/users/:username  (admin only)
 router.delete('/fanclub/users/:username', checkAuth, checkAdmin, deleteUser);
+
+// -------------- COMBINED EXPORT ROUTES --------------
+// GET /api/export/all?date=  (messages + blogs in one zip)
+router.get('/export/all', checkAuth, getCombinedZip);
+
+// -------------- COMBINED PROMPT ROUTES --------------
+// GET /api/prompt/members  (groups -> members with messages and/or blogs)
+router.get('/prompt/members', checkAuth, getPromptMembers);
+// POST /api/prompt/combined  (messages + blogs for one member, one JSON file)
+router.post('/prompt/combined', checkAuth, getCombinedPrompt);
 
 // -------------- TV PROGRAM ROUTES --------------
 // GET /api/tvprogram

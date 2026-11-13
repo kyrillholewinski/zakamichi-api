@@ -393,8 +393,8 @@ export const getMessagesZip = async (req, res, next) => {
 
 export const getMessagesPrompt = async (req, res, next) => {
     try {
-        const { member, date } = req.body;
-        // 1) Determine cutoff date
+        const { member, date, all } = req.body;
+        // 1) Determine cutoff date. `all` exports the whole history (no cutoff).
         const defaultDate = new Date(Date.now() - 7 * 24 * 3600 * 1000); // 7 days ago
         let lastUpdate = defaultDate;
         if (date) {
@@ -402,7 +402,7 @@ export const getMessagesPrompt = async (req, res, next) => {
             if (!isNaN(parsed)) lastUpdate = parsed;
         }
 
-        const cutoffDate = lastUpdate;
+        const cutoffDate = all ? null : lastUpdate;
 
         // Load configs
         const configGroups = await getJson(CONFIG_FILE_NAME);

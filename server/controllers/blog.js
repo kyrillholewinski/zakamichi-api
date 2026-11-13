@@ -61,6 +61,10 @@ const PATHS = {
     ROOT: BLOG_BOT_PATH,
     RECORD: 'record',
     CONTENT: 'blogContent',
+    // Chinese (Traditional) translations written by zakamichi-blog-bot:
+    //   blogContent_TC/<group>/<id>.html  translated article HTML
+    //   blogContent_TC/<group>/<id>.json  { title, targetLanguage, translatedAt } (optional sidecar)
+    CONTENT_TC: 'blogContent_TC',
     STATUS_FILE: 'BlogStatus.JSON'
 };
 
@@ -94,7 +98,7 @@ export async function getAllBlogMembers() {
 /**
  * Reads HTML content for a specific blog.
  */
-async function getBlogHtmlContent(blogId, groupName) {
+export async function getBlogHtmlContent(blogId, groupName) {
     const contentFolderPath = path.join(PATHS.ROOT, PATHS.CONTENT, groupName);
     await ensureDirectoryExists(contentFolderPath);
 
@@ -103,6 +107,35 @@ async function getBlogHtmlContent(blogId, groupName) {
     try {
         await fs.promises.access(htmlContentFilePath, fs.constants.R_OK);
         return await fs.promises.readFile(htmlContentFilePath, 'utf-8', fs.constants.R_OK);
+    } catch {
+        return null;
+    }
+}
+
+const translationPaths = (blogId, groupName) => {
+    const dir = path.join(PATHS.ROOT, PATHS.CONTENT_TC, groupName);
+    return { html: path.join(dir, `${blogId}.html`), meta: path.join(dir, `${blogId}.json`) };
+};
+
+const hasBlogTranslation = (blogId, groupName) =>
+    fs.existsSync(translationPaths(blogId, groupName).html);
+
+/**
+ * Reads the bot's translated copy of a blog, or null when it has not been
+ * translated yet. Older backfill output has no .json sidecar, so the title may
+ * be null.
+ */
+async function getBlogTranslation(blogId, groupName) {
+    const paths = translationPaths(blogId, groupName);
+    try {
+        const htmlContent = await fs.promises.readFile(paths.html, 'utf-8');
+        const meta = await getJson(paths.meta, {});
+        return {
+            htmlContent,
+            title: meta?.title || null,
+            targetLanguage: meta?.targetLanguage || null,
+            translatedAt: meta?.translatedAt || null,
+        };
     } catch {
         return null;
     }
@@ -263,16 +296,25 @@ export const getBlogList = async (req, res, next) => {
  */
 export const getBlogDetail = async (req, res, next) => {
     try {
-        const { id, group } = req.body;
+        const { id, group, lang } = req.body;
 
         if (!id || !group) {
             return res.status(400).json({ success: false, error: 'Blog ID and Group are required.' });
         }
 
+        // lang: 'zh' -> the Chinese translation produced by zakamichi-blog-bot.
+        if (lang === 'zh') {
+            const translation = await getBlogTranslation(id, group);
+            if (!translation) {
+                return res.status(404).json({ success: false, error: 'This blog has not been translated yet.' });
+            }
+            return res.json({ ...translation, lang: 'zh' });
+        }
+
         const htmlContent = await getBlogHtmlContent(id, group);
 
         if (htmlContent) {
-            res.json({ htmlContent });
+            res.json({ htmlContent, has_translation: hasBlogTranslation(id, group) });
         } else {
             res.status(404).json({ success: false, error: 'Blog content not found.' });
         }
@@ -425,10 +467,12 @@ export const getBlogImageLinks = async (req, res, next) => {
 
 export const getBlogsPrompt = async (req, res, next) => {
     try {
-        const { member, group, date, blogId } = req.body;
-        // 1. Determine Cutoff Date
+        const { member, group, date, blogId, all } = req.body;
+        // 1. Determine Cutoff Date. `all` exports the whole history (no cutoff).
         let cutoffDate = null;
-        if (date) {
+        if (all) {
+            cutoffDate = null;
+        } else if (date) {
             // If no specific member is selected, we might use a date filter
             const parsed = new Date(parseDateTime(date, 'yyyyMMdd'));
             cutoffDate = parsed || DEFAULT_LAST_UPDATE;
@@ -510,7 +554,7 @@ export const getBlogsPrompt = async (req, res, next) => {
  * Prepares a flat list of download tasks.
  * Does not download yet, just calculates URLs and paths.
  */
-function prepareDownloadTasks(members, cutoffDate, targetBlogId) {
+export function prepareDownloadTasks(members, cutoffDate, targetBlogId) {
     const tasks = [];
 
     for (const member of members) {
@@ -564,7 +608,7 @@ function prepareDownloadTasks(members, cutoffDate, targetBlogId) {
  * Executes the specific download task.
  * Returns formatted object for archiver or null on failure.
  */
-async function executeDownloadTask(task, archive, options = {}) {
+export async function executeDownloadTask(task, archive, options = {}) {
     const { signal, isAborted } = options;
     const { url, archivePath, date, memberName } = task;
     if (isAborted?.()) return;
@@ -586,3 +630,78 @@ async function executeDownloadTask(task, archive, options = {}) {
         console.warn(`✖ Failed: ${memberName} -> ${url} : ${err.message}`);
     }
 }
+
+/**
+ * POST /api/blog/media
+ * Paginated image gallery for one member, mirroring the message media contract
+ * (page / limit / until_date, newest first, has_more).
+ *
+ * Blogs store images as a list per post, so one post can yield several cells.
+ * URL construction matches prepareDownloadTasks so a gallery image and its
+ * exported file are always the same asset.
+ */
+export const getBlogMedia = async (req, res, next) => {
+    try {
+        const { member, group, page = 1, limit = 60, until_date } = req.body;
+        const nLimit = parseInt(limit, 10);
+        const nPage = parseInt(page, 10);
+
+        if (!member || !group) {
+            return res.status(400).json({ error: 'member and group are required' });
+        }
+
+        // Inclusive "up to this day" cutoff, same yyyyMMdd contract as the list.
+        let cutoffEnd = null;
+        if (until_date) {
+            const parsed = parseDateTime(until_date, 'yyyyMMdd');
+            if (parsed) {
+                const d = new Date(parsed);
+                if (!isNaN(d)) {
+                    d.setHours(23, 59, 59, 999);
+                    cutoffEnd = d;
+                }
+            }
+        }
+
+        const allMembers = await getAllBlogMembers();
+        const target = allMembers.find(m => m.Name === member && m.Group === group);
+        if (!target) {
+            return res.status(404).json({ error: 'Member not found' });
+        }
+
+        const homePage = GROUP_CONFIG[target.Group]?.url || '';
+        const images = [];
+
+        for (const blog of target.BlogList || []) {
+            const blogDate = new Date(blog.DateTime);
+            if (isNaN(blogDate)) continue;
+            if (cutoffEnd && blogDate > cutoffEnd) continue;
+
+            const valid = (blog.ImageList || []).filter(rel =>
+                SOURCE_EXTENSIONS.has(path.extname(rel).toLowerCase())
+            );
+            valid.forEach((imgPath, index) => {
+                images.push({
+                    id: `${blog.ID}-${index}`,
+                    blog_id: blog.ID,
+                    title: blog.Title || '',
+                    url: `${homePage}${imgPath}`,
+                    published_at: blog.DateTime,
+                });
+            });
+        }
+
+        images.sort((a, b) => new Date(b.published_at) - new Date(a.published_at));
+
+        const startIndex = (nPage - 1) * nLimit;
+        const endIndex = nPage * nLimit;
+
+        return res.json({
+            list: images.slice(startIndex, endIndex),
+            has_more: endIndex < images.length,
+            total: images.length,
+        });
+    } catch (err) {
+        next(err);
+    }
+};
